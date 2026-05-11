@@ -1,0 +1,26 @@
+%YAML 1.1
+%TAG !u! tag:yousandi.cn,2023:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 0}
+  m_Name: Dialogue_5
+  m_EditorClassIdentifier: Assembly-CSharp::DialogueScript
+  sections:
+  - prompt:
+      type: 0
+      text: "\u7D27\u6025\u60C5\u51B5\uFF01\u6253\u5370\u673A\u5361\u7EB8\u4E86\uFF0C\u621110\u5206\u949F\u540E\u6709\u4E2A\u91CD\u8981\u4F1A\u8BAE\u3002\u6211\u77E5\u9053\u8FD9\u4E0D\u662F\u4F60\u7684\u5DE5\u4F5C\uFF0C\u4F46\u4F60\u662F\u552F\u4E00\u4E00\u4E2A\u77E5\u9053\u600E\u4E48\u4FEE\u7684\u4EBA\uFF01"
+    choiceA:
+      type: 0
+      text: "\u6211...\u6B63\u5FD9\u7740\u3002\u8BD5\u8BD5\u6253\u5F00\u540E\u76D6\u6258\u76D8\u3002"
+    branchALines: []
+    choiceB:
+      type: 0
+      text: "\u6216\u8005\u95EE\u95EE\u524D\u53F0"
+    branchBLines: []
