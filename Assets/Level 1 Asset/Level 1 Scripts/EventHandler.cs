@@ -13,6 +13,34 @@ public class EventHandler : MonoBehaviour
         UpdateTipsUI?.Invoke(textIndex);
     }
 
+
+    /// <summary>
+    /// UI打开事件：参数=打开的UI数量
+    /// </summary>
+    public static event Action<int> OnUIOpened;
+    public static void CallUIOpened(int uiCount)
+    {
+        OnUIOpened?.Invoke(uiCount);
+    }
+
+    /// <summary>
+    /// UI关闭事件：参数=剩余的UI数量
+    /// </summary>
+    public static event Action<int> OnUIClosed;
+    public static void CallUIClosed(int remainingUICount)
+    {
+        OnUIClosed?.Invoke(remainingUICount);
+    }
+
+    /// <summary>
+    /// 所有UI关闭完成事件
+    /// </summary>
+    public static event Action OnAllUIClosed;
+    public static void CallAllUIClosed()
+    {
+        OnAllUIClosed?.Invoke();
+    }
+
     //加载场景名称和位置
     public static event Action<string, Vector3> TransitionEvent;
     public static void CallTransitionEvent(string sceneName,Vector3 pos)

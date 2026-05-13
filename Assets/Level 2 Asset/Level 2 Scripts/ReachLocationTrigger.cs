@@ -17,9 +17,8 @@ public class ReachLocationTrigger : MonoBehaviour
     private bool hasTriggered = false;
 
     private void OnTriggerEnter2D(Collider2D other)
-    {   
+    {
         if (hasTriggered) return;
-        // If the colliding object is not the player, exit the method
         if (!other.CompareTag("Player")) return;
         hasTriggered = true;
 
@@ -28,10 +27,18 @@ public class ReachLocationTrigger : MonoBehaviour
         {
             checker.OnReach(type);
         }
+
         if (UIManager.Instance != null)
         {
-             UIManager.Instance.ShowPhoneDialogue(type);
+            UIManager.Instance.ShowPhoneDialogue(type);
         }
+
+        // 【移除】ShowPhoneDialogue内部已经处理了玩家暂停，这里不需要重复调用
+        // Player player = other.GetComponent<Player>();
+        // if (player != null)
+        // {
+        //     player.PauseMovement();
+        // }
     }
 
 

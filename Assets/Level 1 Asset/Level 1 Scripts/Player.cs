@@ -324,6 +324,43 @@ public class Player : MonoBehaviour
     [SerializeField] private bool canMoveRight = true;  // ��ֹ�����ƶ�
     [SerializeField] private bool canJump = true;       // ��ֹ��Ծ
 
+
+    [Header("全局暂停")]
+    [SerializeField] private bool isMovementPaused = false;  // 全局暂停标记
+
+    /// <summary>
+    /// 暂停所有移动（UI弹出时调用）
+    /// </summary>
+    public void PauseMovement()
+    {
+        isMovementPaused = true;
+        // 立即停止当前移动 - 完全停止所有速度
+        horizontalInput = 0;
+        rb.velocity = Vector2.zero;
+        // 清除所有跳跃输入状态
+        isJumpPressed = false;
+        isJumpHeld = false;
+        isJumpReleased = false;
+        jumpBufferCounter = 0;
+        Debug.Log("[Player] 移动已暂停");
+    }
+
+    /// <summary>
+    /// 恢复所有移动（所有UI关闭时调用）
+    /// </summary>
+    public void ResumeMovement()
+    {
+        isMovementPaused = false;
+    }
+
+    /// <summary>
+    /// 检查是否处于暂停状态
+    /// </summary>
+    public bool IsMovementPaused()
+    {
+        return isMovementPaused;
+    }
+
     private void Awake()
     {
         rb = GetComponent<Rigidbody2D>();
@@ -331,9 +368,16 @@ public class Player : MonoBehaviour
         animator = GetComponent<Animator>();
         spriteRenderer = GetComponent<SpriteRenderer>();
 
-        //��������
         rb.gravityScale = 3f;
         rb.freezeRotation = true;
+
+        // 初始化朝向：确保IsFacingRight与scale.x一致
+        IsFacingRight = true;
+        Vector3 scale = transform.localScale;
+        scale.x = Mathf.Abs(scale.x);
+        transform.localScale = scale;
+
+
     }
 
     private void OnEnable()
@@ -341,8 +385,10 @@ public class Player : MonoBehaviour
         EventHandler.BeforeSceneUnloadEvent += OnBeforeSceneUnloadEvent;
         EventHandler.AfterSceneLoadEvent += OnAfterSceneLoadEvent;
         EventHandler.MoveToPosition += OnMoveToPosition;
-
         EventHandler.Movement += SetMovementRestrictions;
+
+        
+        EventHandler.OnAllUIClosed += OnAllUIClosed;
     }
 
     private void OnDisable()
@@ -350,22 +396,27 @@ public class Player : MonoBehaviour
         EventHandler.BeforeSceneUnloadEvent -= OnBeforeSceneUnloadEvent;
         EventHandler.AfterSceneLoadEvent -= OnAfterSceneLoadEvent;
         EventHandler.MoveToPosition -= OnMoveToPosition;
-
         EventHandler.Movement -= SetMovementRestrictions;
+
+        
+        EventHandler.OnAllUIClosed -= OnAllUIClosed;
     }
+
+ 
+    private void OnAllUIClosed()
+    {
+        ResumeMovement();
+    }
+    // =========================================================
 
     private void OnMoveToPosition(Vector3 targetPosition)
     {
         transform.position = targetPosition;
-        IsFacingRight = false; // ����״̬Ϊ����
-
-        // ȷ��scale.xΪ�������ң�
+        IsFacingRight = true; // 修复：统一设为朝右
+                              // 确保scale.x为正值（朝右）
         Vector3 scale = transform.localScale;
-        if (scale.x < 0) // �����ǰ����
-        {
-            scale.x = Mathf.Abs(scale.x); // ��תΪ����
-            transform.localScale = scale;
-        }
+        scale.x = Mathf.Abs(scale.x); // 强制朝右
+        transform.localScale = scale;
     }
 
     private void OnAfterSceneLoadEvent()
@@ -395,17 +446,31 @@ public class Player : MonoBehaviour
     void FixedUpdate()
     {
         CheckGround();
-        if (!inputDisable)
+        // UI打开时完全禁止移动和跳跃
+        if (!inputDisable && !isMovementPaused)
         {
             HandleMovement();
+            HandleJump();
         }
-        HandleJump();
+        else if (isMovementPaused)
+        {
+            // 暂停期间持续清零速度，防止外力影响
+            rb.velocity = new Vector2(0, rb.velocity.y);
+        }
         ClampFallSpeed();
     }
 
     #region ���봦��
     private void GetInput()
     {
+        if (isMovementPaused)
+        {
+            horizontalInput = 0;
+            isJumpPressed = false;
+            isJumpHeld = false;
+            isJumpReleased = false;
+            return;
+        }
         // ��ȡԭʼ����
         float rawInput = Input.GetAxisRaw("Horizontal");
 
@@ -422,6 +487,8 @@ public class Player : MonoBehaviour
         {
             horizontalInput = rawInput;
         }
+
+
 
         // ��Ծ����
         if (canJump)
@@ -588,14 +655,8 @@ public class Player : MonoBehaviour
     {
         IsFacingRight = !IsFacingRight;
         Vector3 scale = transform.localScale;
-        scale.x *= -1;
+        scale.x = Mathf.Abs(scale.x) * (IsFacingRight ? 1 : -1);
         transform.localScale = scale;
-
-        if ((IsFacingRight && scale.x < 0) || (!IsFacingRight && scale.x > 0))
-        {
-            scale.x = Mathf.Abs(scale.x) * (IsFacingRight ? 1 : -1);
-            transform.localScale = scale;
-        }
     }
     #endregion
 

@@ -53,12 +53,26 @@ public class UIManager: Singleton<UIManager>
     [Header("Level 2 UI Elements")]
     [SerializeField] private GameObject level2UIRoot;   // Level2UIRoot
     [SerializeField] private GameObject phoneUIRoot;    // PhoneUIRoot
-    [SerializeField] private TMP_Text messageHeader;    // MessageHeader 上的 TMP
-    [SerializeField] private TMP_Text messageText;      // MessageText 上的 TMP
+    [SerializeField] private Text messageHeader;    // MessageHeader 上的 TMP
+    [SerializeField] private Text messageText;      // MessageText 上的 TMP
     
     [Header("Level 2 Dialogue System")]
-    [SerializeField] private PhoneDialogueRunner phoneDialogueRunner;    
-    
+    [SerializeField] private PhoneDialogueRunner phoneDialogueRunner;
+    [Header("手机图标与动画")]
+    [SerializeField] private RectTransform phoneIcon;           // 左上角手机图标
+    [SerializeField] private AudioClip phoneNotificationSound;  // 手机提示音效
+    [SerializeField] private AudioSource uiAudioSource;         // UI音效源
+    [SerializeField] private float shakeDuration = 0.5f;        // 抖动持续时间
+    [SerializeField] private float shakeStrength = 15f;         // 抖动强度
+    private bool isShaking = false;
+
+    [Header("结果字幕显示")]
+    [SerializeField] private GameObject resultPanel;         // 结果面板
+    [SerializeField] private CanvasGroup resultCanvasGroup;  // 结果面板CanvasGroup（用于淡入淡出）
+    [SerializeField] private Text resultText;               // 结果文本
+    [SerializeField] private float resultFadeDuration = 1f; // 淡入淡出时长
+    [SerializeField] private float resultDisplayTime = 3f;  // 结果显示时间
+    public event System.Action OnResultFadeComplete;        // 结果字幕淡出完成事件
     [Serializable]
     public class ReachDialogueBinding
     {
@@ -69,30 +83,66 @@ public class UIManager: Singleton<UIManager>
     [SerializeField] private List<ReachDialogueBinding> reachDialogueBindings = new();
     private Dictionary<ReachLocationType, DialogueScript> reachDialogueMap;
 
-    
+    private int openUICount = 0;  // 当前打开的UI数量
+    private bool hasMadeChoice = false;  // 是否已做出选择（防止未选择就关闭）
+    private Player playerController;  // 玩家控制器引用
+
+
     void Start()
     {
-        // ��ʼ����ʾ��һҳ
+        DontDestroyOnLoad(gameObject);
+        // 初始化显示第一页
         ShowPageImmediate(currentPage);
-
-        // �󶨰�ť�¼�
+        // 绑定按钮事件
         nextButton.onClick.AddListener(NextPage);
         prevButton.onClick.AddListener(PrevPage);
-
-        // ���°�ť״̬
+        // 更新按钮状态
         UpdateButtonStates();
-
         // Hide Level 2 UI at start
         level2UIRoot.SetActive(false);
-
         // Build reach dialogue map
         reachDialogueMap = new Dictionary<ReachLocationType, DialogueScript>();
         foreach (var b in reachDialogueBindings)
         {
             if (b == null) continue;
             if (b.dialogue == null) continue;
-
             reachDialogueMap[b.type] = b.dialogue;
+        }
+
+       
+        // 获取玩家控制器引用
+        GameObject playerObj = GameObject.FindGameObjectWithTag("Player");
+        if (playerObj != null)
+        {
+            playerController = playerObj.GetComponent<Player>();
+        }
+
+        // 监听对话完成事件
+        if (phoneDialogueRunner != null)
+        {
+            phoneDialogueRunner.OnDialogueComplete += OnDialogueComplete;
+            phoneDialogueRunner.OnChoiceMade += OnChoiceMade;
+        }
+
+        if (GameTimerManager.Instance != null)
+        {
+            GameTimerManager.Instance.OnLevel2Complete += OnLevel2Complete;
+        }
+
+        // 初始化隐藏结果面板
+        if (resultPanel != null)
+        {
+            resultPanel.SetActive(false);
+            // 自动添加CanvasGroup组件
+            if (resultCanvasGroup == null)
+            {
+                resultCanvasGroup = resultPanel.GetComponent<CanvasGroup>();
+                if (resultCanvasGroup == null)
+                {
+                    resultCanvasGroup = resultPanel.AddComponent<CanvasGroup>();
+                }
+            }
+            resultCanvasGroup.alpha = 0f;
         }
     }
 
@@ -101,6 +151,10 @@ public class UIManager: Singleton<UIManager>
         EventHandler.UpdateTipsUI += UpdateTipTexts;
 
         EventHandler.UpdateMemoryUI += UpdateMemoryTexts;
+
+        EventHandler.AfterSceneLoadEvent += OnAfterSceneLoad;
+
+        StartCoroutine(SubscribeEventsNextFrame());
     }
 
     private void OnDisable()
@@ -108,9 +162,67 @@ public class UIManager: Singleton<UIManager>
         EventHandler.UpdateTipsUI -= UpdateTipTexts;
 
         EventHandler.UpdateMemoryUI -= UpdateMemoryTexts;
+        EventHandler.AfterSceneLoadEvent -= OnAfterSceneLoad;  
+        if (GameTimerManager.Instance != null)
+        {
+            GameTimerManager.Instance.OnLevel2Complete -= OnLevel2Complete;
+        }
+
+
+    }
+    private IEnumerator SubscribeEventsNextFrame()
+    {
+        yield return null;
+
+        if (phoneDialogueRunner != null)
+        {
+            phoneDialogueRunner.OnDialogueComplete -= OnDialogueComplete;
+            phoneDialogueRunner.OnChoiceMade -= OnChoiceMade;
+            phoneDialogueRunner.OnDialogueComplete += OnDialogueComplete;
+            phoneDialogueRunner.OnChoiceMade += OnChoiceMade;
+            Debug.Log("[UIManager] 事件重新订阅完成");
+        }
     }
 
-    // ��һҳ��������Ч����
+    /// <summary>
+    /// 场景加载完成后统一处理UI激活
+    /// </summary>
+    private void OnAfterSceneLoad()
+    {
+        string sceneName = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+
+        //// 进入Level2时激活手机UI
+        //if (sceneName.Contains("Level2"))
+        //{
+        //    if (level2UIRoot != null)
+        //    {
+        //        level2UIRoot.SetActive(true);
+        //        Debug.Log($"[UIManager] Level2场景加载完成，已激活Level2UIRoot");
+        //    }
+        //    else
+        //    {
+        //        Debug.LogError("[UIManager] level2UIRoot 引用丢失！请在Inspector中重新赋值");
+        //    }
+        //}
+        //// 离开Level2时隐藏手机UI
+        //else
+        //{
+        //    if (level2UIRoot != null)
+        //    {
+        //        level2UIRoot.SetActive(false);
+        //    }
+        //}
+
+        // 离开Level2时隐藏手机UI
+        if (!sceneName.Contains("Level2"))
+        {
+            if (level2UIRoot != null)
+            {
+                level2UIRoot.SetActive(false);
+            }
+        }
+    }
+
     public void NextPage()
     {
         if (!isTransitioning && currentPage < pages.Length - 1)
@@ -311,25 +423,134 @@ public class UIManager: Singleton<UIManager>
 
     public void ShowPhoneDialogue(ReachLocationType type)
     {
+        if (level2UIRoot != null)
+        {
+            level2UIRoot.SetActive(true);
+        }
+
+        // ========== 【打包修复】第二步：多种方式查找Level2UIRoot ==========
+        if (level2UIRoot == null)
+        {
+            // 方式1：按名称查找
+            level2UIRoot = GameObject.Find("Level2UIRoot");
+
+            // 方式2：按标签查找（如果设置了标签）
+            if (level2UIRoot == null)
+            {
+                GameObject[] allRoots = UnityEngine.SceneManagement.SceneManager.GetActiveScene().GetRootGameObjects();
+                foreach (GameObject root in allRoots)
+                {
+                    if (root.name.Contains("Level2UI") || root.name.Contains("UI"))
+                    {
+                        level2UIRoot = root;
+                        break;
+                    }
+                }
+            }
+
+            if (level2UIRoot == null)
+            {
+                Debug.LogError("【严重错误】level2UIRoot not found! " +
+                              "请确保UIManager Inspector中已正确赋值！");
+                return;
+            }
+
+            level2UIRoot.SetActive(true);
+            Debug.Log($"[UIManager] 运行时找到level2UIRoot: {level2UIRoot.name}");
+        }
+
+        // 确保激活
         level2UIRoot.SetActive(true);
+
+        // ========== 【打包修复】第三步：可靠查找PhoneUIRoot ==========
+        if (phoneUIRoot == null)
+        {
+            // 方式1：从子对象中递归查找（包含未激活）
+            phoneUIRoot = FindChildRecursive(level2UIRoot.transform, "PhoneUIRoot");
+
+            // 方式2：全局查找
+            if (phoneUIRoot == null)
+            {
+                phoneUIRoot = GameObject.Find("PhoneUIRoot");
+            }
+
+            if (phoneUIRoot == null)
+            {
+                Debug.LogError("【严重错误】phoneUIRoot not found! " +
+                              "请确保UIManager Inspector中已正确赋值！");
+                return;
+            }
+
+            Debug.Log($"[UIManager] 运行时找到phoneUIRoot: {phoneUIRoot.name}");
+        }
+
         phoneUIRoot.SetActive(true);
+
+        // ========== 其余原有代码保持不变 ==========
+        if (phoneDialogueRunner == null)
+        {
+            phoneDialogueRunner = phoneUIRoot.GetComponentInChildren<PhoneDialogueRunner>(true);
+        }
 
         if (phoneDialogueRunner == null)
         {
-            Debug.LogWarning("PhoneDialogueRunner is not assigned on UIManager.");
+            Debug.LogError("PhoneDialogueRunner is not assigned on UIManager.");
             return;
         }
-
         if (reachDialogueMap == null)
         {
-            Debug.LogWarning("Reach dialogue map not initialized.");
+            Debug.LogError("Reach dialogue map not initialized.");
+            return;
+        }
+        if (!reachDialogueMap.TryGetValue(type, out var script) || script == null)
+        {
+            Debug.LogError($"No DialogueScript bound for ReachLocationType: {type}. " +
+                          $"Please configure reachDialogueBindings in UIManager Inspector!");
+            return;
+        }
+        if (script.sections == null || script.sections.Count == 0)
+        {
+            Debug.LogError($"DialogueScript for {type} has no sections!");
             return;
         }
 
-        if (!reachDialogueMap.TryGetValue(type, out var script) || script == null)
+        // 确保PhoneUIRoot也激活
+        if (phoneUIRoot != null)
         {
-            Debug.LogWarning($"No DialogueScript bound for ReachLocationType: {type}");
-            return;
+            phoneUIRoot.SetActive(true);
+        }
+
+        PlayPhoneShakeAnimation();
+        PlayPhoneNotificationSound();
+        openUICount++;
+        hasMadeChoice = false;
+        EventHandler.CallUIOpened(openUICount);
+
+        
+        if (playerController != null)
+        {
+            playerController.PauseMovement();
+            Debug.Log("[UIManager] 手机UI弹出，暂停玩家移动");
+        }
+        else
+        {
+            // 兜底方案：直接操作Rigidbody
+            GameObject playerObj = GameObject.FindGameObjectWithTag("Player");
+            if (playerObj != null)
+            {
+                playerController = playerObj.GetComponent<Player>();
+                player = playerObj.GetComponent<Rigidbody2D>();
+                if (playerController != null)
+                {
+                    playerController.PauseMovement();
+                }
+                else if (player != null)
+                {
+                    player.bodyType = RigidbodyType2D.Kinematic;
+                    player.velocity = Vector2.zero;
+                }
+            }
+            Debug.Log("[UIManager] 手机UI弹出，使用兜底方式暂停");
         }
 
         phoneDialogueRunner.StartDialogue(script);
@@ -337,8 +558,220 @@ public class UIManager: Singleton<UIManager>
 
     public void PhoneCloseBtn()
     {
+       
+        if (!hasMadeChoice)
+        {
+            Debug.Log("请先做出选择后再关闭！");
+            return;  // 未做出选择，不允许关闭
+        }
+        // =========================================================
+
         phoneUIRoot.SetActive(false);
         Debug.Log("Close button clicked");
+
+       
+        openUICount--;
+        EventHandler.CallUIClosed(openUICount);
+
+        // 如果所有UI都关闭了
+        if (openUICount <= 0)
+        {
+            openUICount = 0;
+            EventHandler.CallAllUIClosed();
+
+            // 确保恢复移动
+            if (playerController != null)
+            {
+                playerController.ResumeMovement();
+                Debug.Log("[UIManager] 手机UI关闭，恢复玩家移动");
+            }
+            else
+            {
+                // 兜底方案：重新获取并恢复
+                GameObject playerObj = GameObject.FindGameObjectWithTag("Player");
+                if (playerObj != null)
+                {
+                    playerController = playerObj.GetComponent<Player>();
+                    player = playerObj.GetComponent<Rigidbody2D>();
+                    if (playerController != null)
+                    {
+                        playerController.ResumeMovement();
+                    }
+                    else if (player != null)
+                    {
+                        player.bodyType = RigidbodyType2D.Dynamic;
+                    }
+                }
+                Debug.Log("[UIManager] 手机UI关闭，使用兜底方式恢复");
+            }
+        }
+        
     }
 
+    // ========== 【打包修复】递归查找子对象工具方法 ==========
+    private GameObject FindChildRecursive(Transform parent, string childName)
+    {
+        foreach (Transform child in parent)
+        {
+            if (child.name == childName)
+            {
+                return child.gameObject;
+            }
+
+            GameObject found = FindChildRecursive(child, childName);
+            if (found != null)
+            {
+                return found;
+            }
+        }
+        return null;
+    }
+    /// <summary>
+    /// 对话全部完成时调用
+    /// </summary>
+    private void OnDialogueComplete()
+    {
+        Debug.Log("对话全部完成");
+        // 对话完成后自动关闭UI
+        PhoneCloseBtn();
+    }
+
+    /// <summary>
+    /// 玩家做出选择时调用
+    /// </summary>
+    private void OnChoiceMade()
+    {
+        hasMadeChoice = true;
+        Debug.Log("玩家已做出选择");
+    }
+
+    #region 手机图标抖动动画与音效
+
+    /// <summary>
+    /// 播放手机图标抖动动画
+    /// </summary>
+    private void PlayPhoneShakeAnimation()
+    {
+        if (phoneIcon == null || isShaking) return;
+
+        StartCoroutine(ShakeCoroutine());
+    }
+
+    /// <summary>
+    /// 抖动协程
+    /// </summary>
+    private IEnumerator ShakeCoroutine()
+    {
+        isShaking = true;
+        Vector2 originalPos = phoneIcon.anchoredPosition;
+        float elapsed = 0f;
+
+        while (elapsed < shakeDuration)
+        {
+            elapsed += Time.deltaTime;
+            float x = UnityEngine.Random.Range(-1f, 1f) * shakeStrength;
+            float y = UnityEngine.Random.Range(-1f, 1f) * shakeStrength;
+            phoneIcon.anchoredPosition = originalPos + new Vector2(x, y);
+            yield return null;
+        }
+
+        phoneIcon.anchoredPosition = originalPos;
+        isShaking = false;
+    }
+
+    /// <summary>
+    /// 播放手机提示音效
+    /// </summary>
+    private void PlayPhoneNotificationSound()
+    {
+        if (uiAudioSource == null || phoneNotificationSound == null) return;
+
+        uiAudioSource.PlayOneShot(phoneNotificationSound);
+    }
+
+    #endregion
+
+
+    #region 【Level2结果显示
+
+    /// <summary>
+    /// Level2完成时调用
+    /// </summary>
+    private void OnLevel2Complete(bool isOvertime)
+    {
+        ShowResultMessage(isOvertime);
+    }
+
+    /// <summary>
+    /// 显示结果消息（带淡入效果）
+    /// </summary>
+    private void ShowResultMessage(bool isOvertime)
+    {
+        if (resultPanel == null || resultText == null)
+        {
+            Debug.LogWarning("Result UI not assigned!");
+            return;
+        }
+        // 设置结果文本
+        if (isOvertime)
+        {
+            resultText.text = "你上班迟到了。。。";
+        }
+        else
+        {
+            resultText.text = "你及时到达了公司";
+        }
+        // 显示结果面板并淡入
+        resultPanel.SetActive(true);
+        StartCoroutine(FadeResultIn());
+    }
+
+    /// <summary>
+    /// 结果面板淡入协程
+    /// </summary>
+    private IEnumerator FadeResultIn()
+    {
+        if (resultCanvasGroup == null) yield break;
+
+        float elapsedTime = 0f;
+        while (elapsedTime < resultFadeDuration)
+        {
+            elapsedTime += Time.deltaTime;
+            resultCanvasGroup.alpha = Mathf.Lerp(0f, 1f, elapsedTime / resultFadeDuration);
+            yield return null;
+        }
+        resultCanvasGroup.alpha = 1f;
+
+        // 显示指定时间后淡出
+        yield return new WaitForSeconds(resultDisplayTime);
+        StartCoroutine(FadeResultOut());
+    }
+
+    /// <summary>
+    /// 结果面板淡出协程
+    /// </summary>
+    private IEnumerator FadeResultOut()
+    {
+        if (resultCanvasGroup == null) yield break;
+
+        float elapsedTime = 0f;
+        while (elapsedTime < resultFadeDuration)
+        {
+            elapsedTime += Time.deltaTime;
+            resultCanvasGroup.alpha = Mathf.Lerp(1f, 0f, elapsedTime / resultFadeDuration);
+            yield return null;
+        }
+        resultCanvasGroup.alpha = 0f;
+
+        // 完全淡出后隐藏面板
+        if (resultPanel != null)
+        {
+            resultPanel.SetActive(false);
+        }
+
+        // 触发淡出完成事件，通知可以切换到第三关
+        OnResultFadeComplete?.Invoke();
+    }
+
+    #endregion
 }

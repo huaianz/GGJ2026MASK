@@ -8,25 +8,31 @@ public class Level2ResetController : MonoBehaviour
     [Header("Auto-find triggers in Level2")]
     public ReachLocationTrigger[] triggers;
 
-    
+
 
     public void RestartLevel2WhenDeadOrInit()
     {
-        // Reset Task Flags
         TaskCheckerLevel2 taskChecker = FindObjectOfType<TaskCheckerLevel2>();
         if (taskChecker != null)
         {
             taskChecker.ResetTaskFlags();
         }
 
-        // Reset All Location Triggers
         ResetAllTriggers();
 
-        // Reset Player Position and velocity
-        resetPlayerPositionAndVelocity();
+        GameObject player = GameObject.FindGameObjectWithTag("Player");
+        resetPlayerPositionAndVelocity(player);
+        ForceFacingRight(player);
+    }
 
-        // Force Player to face right
-        ForceFacingRight(GameObject.FindGameObjectWithTag("Player"));
+    private void resetPlayerPositionAndVelocity(GameObject player)
+    {
+        if (player != null && spawnPoint != null)
+        {
+            player.transform.position = spawnPoint.position;
+            var rb = player.GetComponent<Rigidbody2D>();
+            if (rb != null) rb.velocity = Vector2.zero;
+        }
     }
 
     public void ResetAllTriggers()
@@ -52,9 +58,15 @@ public class Level2ResetController : MonoBehaviour
 
     private void ForceFacingRight(GameObject player)
     {
-       var sprite = player.GetComponent<SpriteRenderer>();
-       if (sprite != null)
-        sprite.flipX = false;
+        Player playerController = player.GetComponent<Player>();
+        if (playerController != null)
+        {
+            playerController.IsFacingRight = true;
+        }
+
+        Vector3 scale = player.transform.localScale;
+        scale.x = Mathf.Abs(scale.x);
+        player.transform.localScale = scale;
     }
-    
+
 }
